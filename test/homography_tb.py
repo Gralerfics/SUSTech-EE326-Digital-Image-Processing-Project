@@ -90,6 +90,12 @@ class homography_tb(unittest.TestCase):
         cv2.imshow("corrected", res)
         cv2.waitKey(0)
 
+        # Example Enhancement
+        res[res < 128] = 0
+        res[res > 128] = 255
+        cv2.imshow("enhanced", res)
+        cv2.waitKey(0)
+
         cv2.destroyAllWindows()
 
 
