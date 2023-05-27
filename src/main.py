@@ -1,65 +1,131 @@
 import numpy as np
+import gradio as gr
 import cv2
 
-from gscan.core.geometry import homography
-from gscan.core.geometry import projection
-from gscan.core.basic.regulator import ImageValueRegulator
+from gscan.core.geometry import homography, projection, slicing
+from gscan.core.basic import regulator
+from gscan.core.effect import enhancement
 
 
-# mouse control
-picked = 0
-pixel_x = []
-pixel_y = []
-
-def mouse_handler(event, x, y, flags, param):
-    global picked
-    if event == cv2.EVENT_LBUTTONDOWN and picked < 4:
-        picked += 1
-        pixel_x.append(x)
-        pixel_y.append(y)
-        cv2.circle(img_show, (x, y), 2, (0, 0, 255), 2)
-        if picked > 1:
-            cv2.line(img_show, (pixel_x[picked - 2], pixel_y[picked - 2]), (x, y), (255, 0, 0), 2)
-        if picked == 4:
-            cv2.line(img_show, (x, y), (pixel_x[0], pixel_y[0]), (255, 0, 0), 2)
-        cv2.imshow("selecting", img_show)
+def confirm_button_click_handler(img):
+    if img is not None:
+        pts = slicing.slice_image(img)
+        ret = []
+        for idx in range(4):
+            ret.append(gr.Slider.update(value=pts[idx][0], maximum=img.shape[1], interactive=True))
+            ret.append(gr.Slider.update(value=pts[idx][1], maximum=img.shape[0], interactive=True))
+        return ret
+    else:
+        return [0] * 8
 
 
-# parameters
-K = np.array([[1536.1, 0, 959.5], [0, 1535.7, 723.8], [0, 0, 1]])
-target_height = 500
+def image_sliced_select_handler(evt: gr.SelectData, *pts):
+    pick = evt.index
+    min_dist = 1e8
+    min_idx = 0
+    for idx in range(4):
+        dist = (pts[idx * 2] - pick[0]) ** 2 + (pts[idx * 2 + 1] - pick[1]) ** 2
+        if dist < min_dist:
+            min_dist = dist
+            min_idx = idx
+    ret = []
+    for idx in range(4):
+        if idx == min_idx:
+            ret.append(gr.Slider.update(value=pick[0], interactive=True))
+            ret.append(gr.Slider.update(value=pick[1], interactive=True))
+        else:
+            ret.append(gr.Slider.update())
+            ret.append(gr.Slider.update())
+    return ret
 
 
-# load image
-img_raw = cv2.imread("../res/test_3.jpg", cv2.IMREAD_COLOR)
+def p_sliders_update_handler(img, p0_x, p0_y, p1_x, p1_y, p2_x, p2_y, p3_x, p3_y):
+    if img is not None:
+        p0 = np.array([int(p0_x), int(p0_y)])
+        p1 = np.array([int(p1_x), int(p1_y)])
+        p2 = np.array([int(p2_x), int(p2_y)])
+        p3 = np.array([int(p3_x), int(p3_y)])
+        img_ret = np.copy(img)
+        cv2.line(img_ret, p0, p1, (0, 0, 255), 2)
+        cv2.line(img_ret, p1, p2, (0, 0, 255), 2)
+        cv2.line(img_ret, p2, p3, (0, 0, 255), 2)
+        cv2.line(img_ret, p3, p0, (0, 0, 255), 2)
+        return img_ret
+    else:
+        return img
 
 
-# selecting
-img_show = np.array(img_raw)
-cv2.namedWindow("selecting")
-cv2.imshow("selecting", img_show)
-cv2.setMouseCallback("selecting", mouse_handler)
-while picked < 4:
-    cv2.waitKey(1)
-p_uv = np.array([pixel_x, pixel_y])
+def correct_button_click_handler(img, p0_x, p0_y, p1_x, p1_y, p2_x, p2_y, p3_x, p3_y, target_height):
+    if img is not None:
+        p0 = np.array([int(p0_x), int(p0_y)])
+        p1 = np.array([int(p1_x), int(p1_y)])
+        p2 = np.array([int(p2_x), int(p2_y)])
+        p3 = np.array([int(p3_x), int(p3_y)])
+        K = np.array([[1536.1, 0, 959.5], [0, 1535.7, 723.8], [0, 0, 1]])
+        p_uv = np.array([p0, p1, p2, p3]).swapaxes(0, 1)
 
-c1, c2, c3, c4 = p_uv.swapaxes(0, 1).tolist()
-cv2.line(img_show, c1, c2, (0, 0, 255), 2)
-cv2.line(img_show, c2, c3, (0, 0, 255), 2)
-cv2.line(img_show, c3, c4, (0, 0, 255), 2)
-cv2.line(img_show, c4, c1, (0, 0, 255), 2)
+        ratio = projection.calc_real_rect_ratio(K, p_uv)
+        target_width = int(target_height * ratio)
+        p_target = np.array([[0, target_width, target_width, 0], [0, 0, target_height, target_height]])
 
-
-# scale calculation
-ratio = projection.calc_real_rect_ratio(K, p_uv)
-target_width = int(target_height * ratio)
-p_target = np.array([[0, target_width, target_width, 0], [0, 0, target_height, target_height]])
+        H = homography.get_homography_matrix(p_target, p_uv)
+        return homography.homography_correction(img, H, (target_height, target_width), regulator=regulator.GrayCuttingRegulator)
+    else:
+        return img
 
 
-# homography correction
-H = homography.get_homography_matrix(p_target, p_uv)
-res = homography.homography_correction(img_raw, H, (target_height, target_width), regulator=ImageValueRegulator)
-cv2.imshow("corrected", res)
-cv2.waitKey(0)
+with gr.Blocks(title="Document Geometry Correction") as application:
+    with gr.Tab("Slicing and Correcting"):
+        gr.Markdown("## Upload")
+        with gr.Row():
+            with gr.Column():
+                image_input = gr.Image()
+            with gr.Column():
+                confirm_button = gr.Button("Confirm")
 
-cv2.destroyAllWindows()
+        gr.Markdown("## Modify")
+        with gr.Row():
+            with gr.Column():
+                image_sliced = gr.Image()
+            with gr.Column():
+                p_sliders = []
+                for idx in range(4):
+                    p_sliders.append([
+                        gr.Slider(0, 100, 0, step=1, label="p{}.x".format(idx)),
+                        gr.Slider(0, 100, 0, step=1, label="p{}.y".format(idx))
+                    ])
+
+        gr.Markdown("## Correct")
+        with gr.Row():
+            with gr.Column():
+                image_corrected = gr.Image()
+            with gr.Column():
+                target_height_slider = gr.Slider(10, 2000, 600, step=1, label="Target Height")
+                correct_button = gr.Button("Correct")
+                copy_to_enhance_button = gr.Button("Copy to Enhancement Tab")
+
+    with gr.Tab("Enhancing"):
+        gr.Markdown("## Enhancement")
+        with gr.Row():
+            with gr.Column():
+                image_pre_enhanced = gr.Image()
+            with gr.Column():
+                binarization_button = gr.Button("Binarization")
+
+        gr.Markdown("## Result")
+        image_enhanced = gr.Image()
+
+    flatten_p_sliders = [item for sublist in p_sliders for item in sublist]
+    confirm_button.click(confirm_button_click_handler, inputs=image_input, outputs=flatten_p_sliders)
+
+    image_sliced.select(image_sliced_select_handler, inputs=flatten_p_sliders, outputs=flatten_p_sliders)
+    for p_slider in flatten_p_sliders:
+        p_slider.change(p_sliders_update_handler, inputs=[image_input] + flatten_p_sliders, outputs=image_sliced, queue=False)
+
+    correct_button.click(correct_button_click_handler, inputs=[image_input] + flatten_p_sliders + [target_height_slider], outputs=image_corrected)
+    copy_to_enhance_button.click(lambda img: img, inputs=image_corrected, outputs=image_pre_enhanced)
+
+    binarization_button.click(lambda img: enhancement.binarization(img, 128), inputs=image_pre_enhanced, outputs=image_enhanced)
+
+application.launch()
+

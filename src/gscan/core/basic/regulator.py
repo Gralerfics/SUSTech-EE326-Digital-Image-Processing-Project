@@ -12,7 +12,7 @@ def NonRegulator(dat):
     return dat
 
 
-def ImageValueRegulator(dat):
+def GrayCuttingRegulator(dat):
     # [ Description ]
     #       A regulator that clip the data between 0 and 255
     #       and convert the data into numpy.uint8

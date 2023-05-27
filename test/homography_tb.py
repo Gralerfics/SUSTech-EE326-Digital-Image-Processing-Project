@@ -3,9 +3,8 @@ import unittest
 import numpy as np
 import cv2
 
-from gscan.core.geometry import homography
-from gscan.core.geometry import projection
-from gscan.core.basic.regulator import ImageValueRegulator
+from gscan.core.geometry import homography, projection
+from gscan.core.basic.regulator import GrayCuttingRegulator
 
 
 class homography_tb(unittest.TestCase):
@@ -32,7 +31,7 @@ class homography_tb(unittest.TestCase):
         cv2.waitKey(0)
 
         H = homography.get_homography_matrix(p1, p2)
-        res = homography.homography_correction(img, H, (800, 800), regulator=ImageValueRegulator)
+        res = homography.homography_correction(img, H, (800, 800), regulator=GrayCuttingRegulator)
 
         cv2.imshow("corrected", res)
         cv2.waitKey(0)
@@ -86,7 +85,7 @@ class homography_tb(unittest.TestCase):
 
         # homography correction
         H = homography.get_homography_matrix(p_target, p_uv)
-        res = homography.homography_correction(img_raw, H, (target_height, target_width), regulator=ImageValueRegulator)
+        res = homography.homography_correction(img_raw, H, (target_height, target_width), regulator=GrayCuttingRegulator)
         cv2.imshow("corrected", res)
         cv2.waitKey(0)
 

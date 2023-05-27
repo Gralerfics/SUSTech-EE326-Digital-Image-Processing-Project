@@ -3,11 +3,11 @@ import unittest
 import numpy as np
 import cv2
 
-from gscan.core.basic import linear
-from gscan.core.basic.regulator import ImageValueRegulator
+from gscan.core.basic import spatial
+from gscan.core.basic.regulator import GrayCuttingRegulator
 
 
-class linear_tb(unittest.TestCase):
+class spatial_tb(unittest.TestCase):
     def test_convolution(self):
         img = cv2.imread("../res/test_1.jpg", cv2.IMREAD_COLOR)
         cv2.imshow("raw", img)
@@ -18,7 +18,7 @@ class linear_tb(unittest.TestCase):
             [-1, 4, -1],
             [0, -1, 0]
         ])
-        img_smoothed = linear.convolution(img, kernel, regulator=ImageValueRegulator)
+        img_smoothed = spatial.convolution(img, kernel, regulator=GrayCuttingRegulator)
         cv2.imshow("smoothed", img_smoothed)
         cv2.waitKey(0)
 
